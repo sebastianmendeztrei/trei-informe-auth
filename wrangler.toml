@@ -1,0 +1,15 @@
+name = "trei-informe-auth"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+ALLOWED_DOMAIN = "trei.cl"
+ORIGIN_BASE_URL = "https://trei.cl"
+ENVIRONMENT = "production"
+
+# Los secretos NO van en este archivo (no se suben a git).
+# En producción se configuran con:
+#   wrangler secret put ENTRA_TENANT_ID
+#   wrangler secret put ENTRA_CLIENT_ID
+#   wrangler secret put ENTRA_CLIENT_SECRET
+#   wrangler secret put SESSION_SECRET
