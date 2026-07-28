@@ -154,16 +154,19 @@ function base64UrlToBytes(str) { const bin = base64UrlDecode(str); const b = new
 // el interruptor — cada cambio dispara un redeploy automático de este worker.
 // ══════════════════════════════════════════════════════════════════════════════
 
+const SIEMPRE_ACCESO = ["smendez@trei.cl"]; // estos correos nunca ven "en mantencion"
+
 function renderHub(session, env) {
 const name = session.name || session.email || "";
 const email = session.email || "";
+const bypass = SIEMPRE_ACCESO.includes(String(email).toLowerCase());
 
 return new Response(hubHtml({
 name,
 email,
 allowedDomain: env.ALLOWED_DOMAIN || "",
-comercialMaint: !!maintenance.comercial,
-escrituracionMaint: !!maintenance.escrituracion,
+comercialMaint: bypass ? false : !!maintenance.comercial,
+escrituracionMaint: bypass ? false : !!maintenance.escrituracion,
 }), {
 headers: { "Content-Type": "text/html; charset=utf-8" },
 });
