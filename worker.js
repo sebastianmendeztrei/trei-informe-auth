@@ -9,6 +9,10 @@
 //   3. destinoSeguro() — cierra la redirección abierta del parámetro `state`.
 //   4. Validación de `iss` en el id_token.
 //   5. SIEMPRE_ACCESO sale del código y pasa a ser una variable de entorno.
+//   6. La mantención se lee del KV `trei_mantenimiento` (el que escribe el
+//      Panel de Salud) en vez de maintenance.json, que estaba quedando viejo.
+//      Requiere el binding MAINTENANCE_KV; sin él, simplemente nunca hay
+//      mantención y el portal funciona igual.
 //
 // Variables a agregar en Cloudflare (ambas son PÚBLICAS, van como Plaintext,
 // no como Secret):
@@ -20,7 +24,21 @@
 // permitido O padrón". El padrón solo suma.
 // ════════════════════════════════════════════════════════════════════════════
 
-import maintenance from "./maintenance.json";
+// El estado de mantención ya no vive en maintenance.json: el Panel de Salud lo
+// escribe en el KV `trei_mantenimiento`. Si el binding MAINTENANCE_KV no está
+// configurado, se asume que no hay mantención — el portal nunca queda trabado.
+async function estadoMantencion(env) {
+  if (!env.MAINTENANCE_KV) return { comercial: false, escrituracion: false };
+  try {
+    const [c, e] = await Promise.all([
+      env.MAINTENANCE_KV.get("comercial"),
+      env.MAINTENANCE_KV.get("escrituracion"),
+    ]);
+    return { comercial: c === "on", escrituracion: e === "on" };
+  } catch (_) {
+    return { comercial: false, escrituracion: false };
+  }
+}
 
 const COOKIE_NAME = "trei_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 8; // 8 horas
@@ -60,7 +78,7 @@ export default {
     // agrega ?ir=1 para saltárselo y pasar directo al informe.
     const isEntryPoint = url.pathname === "/informe_ventas/" || url.pathname === "/informe_ventas";
     if (isEntryPoint && !url.searchParams.has("ir")) {
-      return renderHub(session, env);
+      return await renderHub(session, env);
     }
     if (url.searchParams.has("ir")) {
       url.searchParams.delete("ir");
@@ -320,12 +338,14 @@ function base64UrlToBytes(str) { const bin = base64UrlDecode(str); const b = new
 // PORTAL DE INFORMES
 // ════════════════════════════════════════════════════════════════════════════
 
-function renderHub(session, env) {
+async function renderHub(session, env) {
   const name = session.name || session.email || "";
   const email = String(session.email || "").toLowerCase();
   const bypass = (env.BYPASS_MANTENCION || "")
     .split(",").map(e => e.trim().toLowerCase()).filter(Boolean)
     .includes(email);
+
+  const maintenance = await estadoMantencion(env);
 
   return new Response(hubHtml({
     name,
