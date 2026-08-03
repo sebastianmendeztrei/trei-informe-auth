@@ -7,9 +7,18 @@ ALLOWED_DOMAIN = "trei.cl"
 ORIGIN_BASE_URL = "https://trei.cl"
 ENVIRONMENT = "production"
 
+# Puente a Supabase. Ambos valores son públicos por diseño: la anon key viaja
+# en el navegador de cualquier proyecto Supabase. Van acá y no solo en el panel
+# de Cloudflare porque `wrangler deploy` reemplaza las variables del worker con
+# las de este archivo — si no estuvieran, el próximo despliegue automático las
+# borraría y el informe dejaría de cargar.
+SUPABASE_URL = "https://owhlpaypipgkihgubvfl.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93aGxwYXlwaXBna2loZ3VidmZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxOTIzNjEsImV4cCI6MjA5NDc2ODM2MX0.64wndm7q6l3kaParSh1gXw-8QX_9bhbbYUIJyCM-cz0"
+
 # Los secretos NO van en este archivo (no se suben a git).
 # En producción se configuran con:
 #   wrangler secret put ENTRA_TENANT_ID
 #   wrangler secret put ENTRA_CLIENT_ID
 #   wrangler secret put ENTRA_CLIENT_SECRET
 #   wrangler secret put SESSION_SECRET
+#   wrangler secret put SUPABASE_JWT_SECRET
