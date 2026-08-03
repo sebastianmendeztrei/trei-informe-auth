@@ -50,6 +50,12 @@ export default {
     const permitido = await puedeEntrar(session.email, env);
     if (!permitido) return respuestaSinAcceso(session.email);
 
+    // El informe ya no lleva la anon key: sus consultas pasan por acá y el
+    // worker les pone las credenciales, firmadas con el correo de la sesión.
+    if (url.pathname.startsWith("/informe_ventas/db/")) {
+      return proxySupabase(request, env, url, session.email);
+    }
+
     // Portal de informes: se muestra al entrar a la raíz. El botón "Entrar"
     // agrega ?ir=1 para saltárselo y pasar directo al informe.
     const isEntryPoint = url.pathname === "/informe_ventas/" || url.pathname === "/informe_ventas";
@@ -96,6 +102,79 @@ async function puedeEntrar(email, env) {
   } catch (_) {
     return false;
   }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// PUENTE A SUPABASE
+// El navegador nunca ve una llave. Pide a /informe_ventas/db/rest/v1/... y el
+// worker reenvía a Supabase firmando un token de 5 minutos con el correo que
+// Entra ya validó. La base decide qué filas devuelve según ese correo.
+// ════════════════════════════════════════════════════════════════════════════
+
+async function proxySupabase(request, env, url, email) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_JWT_SECRET || !env.SUPABASE_ANON_KEY) {
+    return new Response("Falta configurar SUPABASE_URL, SUPABASE_ANON_KEY o SUPABASE_JWT_SECRET.", { status: 500 });
+  }
+
+  const ruta = url.pathname.replace("/informe_ventas/db", "");
+  if (!ruta.startsWith("/rest/v1/")) return new Response("Ruta no permitida.", { status: 403 });
+
+  const now = Math.floor(Date.now() / 1000);
+  const token = await firmarJwtHS256({
+    aud: "authenticated",
+    role: "authenticated",
+    sub: await uuidDesdeEmail(email),
+    email: String(email).toLowerCase(),
+    iat: now,
+    exp: now + 300,
+  }, env.SUPABASE_JWT_SECRET);
+
+  // Se copian solo las cabeceras que PostgREST necesita; nunca las que venga
+  // intentando poner el navegador (apikey o Authorization propias).
+  const headers = new Headers();
+  for (const h of ["content-type", "prefer", "range", "accept", "accept-profile", "content-profile"]) {
+    const v = request.headers.get(h);
+    if (v) headers.set(h, v);
+  }
+  headers.set("apikey", env.SUPABASE_ANON_KEY);
+  headers.set("Authorization", "Bearer " + token);
+
+  const destino = env.SUPABASE_URL + ruta + url.search;
+  const res = await fetch(destino, {
+    method: request.method,
+    headers,
+    body: ["GET", "HEAD"].includes(request.method) ? undefined : await request.text(),
+  });
+
+  const salida = new Response(res.body, res);
+  salida.headers.set("Cache-Control", "no-store");
+  salida.headers.delete("set-cookie");
+  return salida;
+}
+
+async function firmarJwtHS256(payload, secret) {
+  const b64 = (obj) => b64url(new TextEncoder().encode(JSON.stringify(obj)));
+  const cuerpo = b64({ alg: "HS256", typ: "JWT" }) + "." + b64(payload);
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const firma = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(cuerpo));
+  return cuerpo + "." + b64url(new Uint8Array(firma));
+}
+
+function b64url(bytes) {
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function uuidDesdeEmail(email) {
+  const h = new Uint8Array(await crypto.subtle.digest(
+    "SHA-256", new TextEncoder().encode("trei-informe:" + String(email).toLowerCase())));
+  h[6] = (h[6] & 0x0f) | 0x50;
+  h[8] = (h[8] & 0x3f) | 0x80;
+  const x = [...h.slice(0, 16)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`;
 }
 
 function respuestaSinAcceso(email) {
