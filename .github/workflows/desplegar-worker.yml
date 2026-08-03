@@ -1,0 +1,43 @@
+# Despliega el worker en la cuenta de Cloudflare que atiende trei.cl.
+#
+# Requiere dos secretos en el repositorio
+# (Settings → Secrets and variables → Actions → New repository secret):
+#
+#   CLOUDFLARE_API_TOKEN   el token de API de esa cuenta
+#   SUPABASE_JWT_SECRET    Supabase → Project Settings → API Keys → JWT Keys
+#
+# GitHub los guarda cifrados y no los muestra a nadie después de guardarlos.
+
+name: Desplegar worker en Cloudflare
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'worker.js'
+      - 'wrangler.toml'
+      - '.github/workflows/desplegar-worker.yml'
+  workflow_dispatch:        # permite lanzarlo a mano desde la pestaña Actions
+
+jobs:
+  desplegar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Los secretos sobreviven a los despliegues, así que esto solo hace falta
+      # la primera vez. Se deja igual: es idempotente y evita sorpresas.
+      - name: Cargar SUPABASE_JWT_SECRET en el worker
+        run: printf '%s' "$SUPABASE_JWT_SECRET" | npx --yes wrangler@3 secret put SUPABASE_JWT_SECRET
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+
+      - name: Desplegar
+        run: npx --yes wrangler@3 deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
