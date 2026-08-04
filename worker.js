@@ -42,7 +42,11 @@ async function estadoMantencion(env) {
 
 const COOKIE_NAME = "trei_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 8; // 8 horas
-const ESCRITURACION_URL = "https://funnel-escrituracion.smendez.workers.dev/";
+// El funnel de escrituración ahora vive dentro de la carpeta del informe, así
+// queda detrás del mismo login de Entra y usa el mismo puente a Supabase.
+// Antes apuntaba a funnel-escrituracion.smendez.workers.dev, que entraba con
+// una clave escrita en el HTML y la anon key pública.
+const ESCRITURACION_URL = "/informe_ventas/escrituracion/";
 
 export default {
   async fetch(request, env) {
