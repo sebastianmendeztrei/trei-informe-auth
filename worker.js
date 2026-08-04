@@ -77,6 +77,23 @@ const TOUR_JS = `/* ════════════════════
   const ROJO = "#E1093F";
 
   // ── Utilidades ────────────────────────────────────────────────────────────
+  // Solo se hace scroll cuando de verdad hace falta. Centrar a lo bruto rompe
+  // los elementos "pegajosos" (el menú de Gestión Ventas se queda fijo arriba
+  // mientras la página baja, y termina mostrándose vacío).
+  function acercar(obj) {
+    if (!obj) return 0;
+    const r = obj.getBoundingClientRect();
+    const H = innerHeight, margen = 20;
+    if (r.top >= margen && r.bottom <= H - margen) return 0;      // ya se ve entera
+    if (r.height > H - margen * 2) {                              // más alta que la pantalla
+      if (r.top >= margen && r.top <= H / 2) return 0;            // su parte de arriba ya se ve
+      scrollBy({ top: r.top - margen, behavior: "smooth" });
+      return 320;
+    }
+    obj.scrollIntoView({ block: "center", behavior: "smooth" });
+    return 320;
+  }
+
   function esVisible(e) {
     const r = e.getBoundingClientRect();
     return !!(e.offsetParent || e.getClientRects().length) && r.width > 0 && r.height > 0;
@@ -187,8 +204,7 @@ const TOUR_JS = `/* ════════════════════
       }
       setTimeout(() => {
         const obj = buscar(paso);
-        if (obj) obj.scrollIntoView({ block: "center", behavior: "smooth" });
-        setTimeout(pintar, obj ? 260 : 0);
+        setTimeout(pintar, acercar(obj));
       }, espera);
     }
 
@@ -244,19 +260,42 @@ const TOUR_JS = `/* ════════════════════
         v.style.cssText = \`position:fixed;background:rgba(15,15,20,.62);pointer-events:auto;left:\${a}px;top:\${b}px;width:\${c}px;height:\${d}px\`;
       });
 
-      // globo: debajo si cabe, si no arriba; centrado horizontal sobre el objetivo
+      // El globo busca dónde ponerse sin tapar lo que está señalando: abajo,
+      // arriba, al lado derecho o al izquierdo, en ese orden. Antes iba siempre
+      // abajo o arriba, y con elementos altos —el menú de la izquierda— terminaba
+      // encima de ellos.
       g.classList.remove("centro");
-      const gw = 330, gh = g.offsetHeight || 190, sep = 14;
-      let gl = Math.min(Math.max(12, r.left + r.width / 2 - gw / 2), W - gw - 12);
-      let gt = y + h + sep, abajo = true;
-      if (gt + gh > H - 12) { gt = y - gh - sep; abajo = false; }
-      if (gt < 12) { gt = 12; }
+      const gw = 330, gh = g.offsetHeight || 190, sep = 14, m = 12;
+      const cabe = {
+        abajo:     H - (y + h) - sep - m >= gh,
+        arriba:    y - sep - m >= gh,
+        derecha:   W - (x + w) - sep - m >= gw,
+        izquierda: x - sep - m >= gw,
+      };
+      const lado = cabe.abajo ? "abajo" : cabe.arriba ? "arriba"
+                 : cabe.derecha ? "derecha" : cabe.izquierda ? "izquierda" : "abajo";
+
+      let gl, gt;
+      if (lado === "abajo" || lado === "arriba") {
+        gl = r.left + r.width / 2 - gw / 2;
+        gt = lado === "abajo" ? y + h + sep : y - gh - sep;
+      } else {
+        gt = r.top + r.height / 2 - gh / 2;
+        gl = lado === "derecha" ? x + w + sep : x - gw - sep;
+      }
+      gl = Math.min(Math.max(m, gl), Math.max(m, W - gw - m));
+      gt = Math.min(Math.max(m, gt), Math.max(m, H - gh - m));
       g.style.left = gl + "px"; g.style.top = gt + "px";
 
       const f = capa.querySelector(".tt-flecha");
       f.style.display = "block";
-      f.style.left = Math.min(Math.max(16, r.left + r.width / 2 - gl - 6), gw - 28) + "px";
-      f.style.top = abajo ? "-6px" : (gh - 6) + "px";
+      if (lado === "abajo" || lado === "arriba") {
+        f.style.left = Math.min(Math.max(16, r.left + r.width / 2 - gl - 6), gw - 28) + "px";
+        f.style.top = lado === "abajo" ? "-6px" : (gh - 6) + "px";
+      } else {
+        f.style.top = Math.min(Math.max(16, r.top + r.height / 2 - gt - 6), gh - 28) + "px";
+        f.style.left = lado === "derecha" ? "-6px" : (gw - 6) + "px";
+      }
 
       // avanzar cuando la persona hace clic en el elemento resaltado
       if (alLimpiar) { alLimpiar(); alLimpiar = null; }
@@ -305,9 +344,7 @@ const TOUR_JS = `/* ════════════════════
       window.addEventListener("scroll", pintar, true);
       document.addEventListener("keydown", teclas);
 
-      const obj = buscar(activos[0]);
-      if (obj) obj.scrollIntoView({ block: "center", behavior: "smooth" });
-      setTimeout(pintar, obj ? 280 : 30);
+      setTimeout(pintar, Math.max(30, acercar(buscar(activos[0]))));
     };
   }
 
