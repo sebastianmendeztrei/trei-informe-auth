@@ -324,9 +324,19 @@ async function hmacSign(message, secret) {
 
 async function proxyToOrigin(request, env, url) {
   const originUrl = new URL(url.pathname + url.search, env.ORIGIN_BASE_URL);
-  const originResp = await fetch(originUrl.toString(), { method: request.method, headers: request.headers });
+
+  // Sin cacheTtl:0, Cloudflare guarda el HTML del informe en el borde y sigue
+  // sirviendo una versión vieja después de cada publicación. Pasó: la URL con
+  // ?ir=1 quedó devolviendo la pantalla de acceso anterior durante horas.
+  const originResp = await fetch(originUrl.toString(), {
+    method: request.method,
+    headers: request.headers,
+    cf: { cacheTtl: 0, cacheEverything: false },
+  });
+
   const resp = new Response(originResp.body, originResp);
   resp.headers.set("X-Robots-Tag", "noindex, nofollow");
+  resp.headers.set("Cache-Control", "no-store, must-revalidate");
   return resp;
 }
 
