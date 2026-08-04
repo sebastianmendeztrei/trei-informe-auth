@@ -406,7 +406,7 @@ const irAPestana = nombre => () => {
 const PASOS_INFORME = [
 
   { titulo: "Bienvenido al Informe Comercial",
-    texto_: "Un minuto para ubicarte. Puedes salir cuando quieras con Esc, y volver a verlo con el botón rojo de abajo a la derecha." },
+    texto_: "Un minuto para ubicarte. Puedes salir cuando quieras con la X o la tecla Esc, y volver a verlo con el botón «Guía» de arriba a la derecha." },
 
   { sel: "#tabs", alEntrar: irAPestana("GESTIÓN"),
     titulo: "Todo se divide en tres",
