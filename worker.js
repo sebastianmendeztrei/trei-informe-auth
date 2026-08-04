@@ -323,7 +323,11 @@ async function hmacSign(message, secret) {
 }
 
 async function proxyToOrigin(request, env, url) {
-  const originUrl = new URL(url.pathname + url.search, env.ORIGIN_BASE_URL);
+  // En el directorio del informe quedó un index antiguo (la pantalla de clave
+  // anterior a Entra) que el servidor entrega antes que index.html. Pidiendo
+  // el archivo explícitamente se evita esa precedencia, sin tocar el servidor.
+  const ruta = url.pathname.endsWith("/") ? url.pathname + "index.html" : url.pathname;
+  const originUrl = new URL(ruta + url.search, env.ORIGIN_BASE_URL);
 
   // Sin cacheTtl:0, Cloudflare guarda el HTML del informe en el borde y sigue
   // sirviendo una versión vieja después de cada publicación. Pasó: la URL con
