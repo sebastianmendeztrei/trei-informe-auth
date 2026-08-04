@@ -48,6 +48,413 @@ const SESSION_TTL_SECONDS = 60 * 60 * 8; // 8 horas
 // una clave escrita en el HTML y la anon key pública.
 const ESCRITURACION_URL = "/informe_ventas/escrituracion/";
 
+// ════════════════════════════════════════════════════════════════════════════
+// TOUR DE BIENVENIDA
+// Se sirve en /informe_ventas/tour.js y el worker lo inyecta al final del
+// <body> de cualquier HTML que devuelva. Así el informe (500 KB, publicado por
+// SFTP desde otro repositorio) no se toca: para cambiar el tour basta con
+// editar este bloque y desplegar el worker.
+// ════════════════════════════════════════════════════════════════════════════
+
+const TOUR_JS = `/* ════════════════════════════════════════════════════════════════════════════
+   TOUR DE BIENVENIDA — Trei
+   Bloque autocontenido: no depende de ninguna librería y no modifica el HTML
+   del informe. Se pega al final del <body> y listo.
+
+   Cómo apunta a los elementos: por selector CSS, o por selector + texto
+   ({sel:'.sidenav-btn', texto:'Resumen Mes'}). Así no hace falta agregarle
+   identificadores al informe.
+
+   Regla importante: si el elemento de un paso no existe o no está visible,
+   ese paso SE SALTA. Es lo que permite que el mismo tour sirva para gerencia
+   (ve los 7 proyectos) y para alguien limitado a uno solo.
+   ════════════════════════════════════════════════════════════════════════════ */
+(function () {
+  "use strict";
+
+  // ── Configuración ─────────────────────────────────────────────────────────
+  const RPC = "/informe_ventas/db/rest/v1/rpc/";   // puente del worker
+  const ROJO = "#E1093F";
+
+  // ── Utilidades ────────────────────────────────────────────────────────────
+  function esVisible(e) {
+    const r = e.getBoundingClientRect();
+    return !!(e.offsetParent || e.getClientRects().length) && r.width > 0 && r.height > 0;
+  }
+
+  // Se queda con el primer candidato VISIBLE, no con el primero del documento:
+  // el informe tiene elementos con la misma clase en pestañas distintas, y las
+  // que no están activas siguen existiendo, ocultas.
+  function buscar(paso) {
+    if (!paso.sel) return null;                     // paso centrado, sin objetivo
+    let candidatos = [...document.querySelectorAll(paso.sel)].filter(esVisible);
+    if (paso.texto) {
+      const t = paso.texto.toLowerCase();
+      candidatos = candidatos.filter(e => e.textContent.trim().toLowerCase().includes(t));
+    }
+    return candidatos[0] || null;
+  }
+
+  function estilos() {
+    if (document.getElementById("tt-css")) return;
+    const s = document.createElement("style");
+    s.id = "tt-css";
+    s.textContent = \`
+      .tt-capa{position:fixed;inset:0;z-index:2147483000;pointer-events:none;
+        font-family:'Ubuntu',Calibri,system-ui,sans-serif}
+      .tt-velo{position:fixed;background:rgba(15,15,20,.62);pointer-events:auto;
+        transition:all .28s cubic-bezier(.4,0,.2,1)}
+      .tt-marco{position:fixed;border:2.5px solid \${ROJO};border-radius:10px;
+        pointer-events:none;box-shadow:0 0 0 4px rgba(225,9,63,.22);
+        transition:all .28s cubic-bezier(.4,0,.2,1)}
+      .tt-globo{position:fixed;width:330px;max-width:calc(100vw - 32px);background:#fff;
+        border-radius:12px;padding:18px 20px 16px;pointer-events:auto;
+        box-shadow:0 12px 40px rgba(0,0,0,.28);transition:all .28s cubic-bezier(.4,0,.2,1)}
+      .tt-globo.centro{left:50%;top:50%;transform:translate(-50%,-50%);width:400px;text-align:center}
+      .tt-flecha{position:absolute;width:12px;height:12px;background:#fff;transform:rotate(45deg)}
+      .tt-paso{font-size:10.5px;font-weight:700;letter-spacing:1.3px;text-transform:uppercase;
+        color:\${ROJO};margin-bottom:7px}
+      .tt-titulo{font-size:16px;font-weight:700;color:#111;margin-bottom:6px;line-height:1.3}
+      .tt-texto{font-size:13.5px;color:#5c5c66;line-height:1.55}
+      .tt-pie{display:flex;align-items:center;gap:8px;margin-top:16px}
+      .tt-puntos{display:flex;gap:5px;margin-right:auto}
+      .tt-punto{width:6px;height:6px;border-radius:50%;background:#dcdce2}
+      .tt-punto.on{background:\${ROJO};width:16px;border-radius:3px}
+      .tt-btn{border:0;border-radius:7px;padding:9px 16px;font-size:13px;font-weight:500;
+        cursor:pointer;font-family:inherit}
+      .tt-btn.p{background:\${ROJO};color:#fff}
+      .tt-btn.s{background:#f0f0f3;color:#555}
+      .tt-btn:hover{filter:brightness(.94)}
+      .tt-salir{position:absolute;top:12px;right:14px;border:0;background:none;cursor:pointer;
+        color:#b8b8c0;font-size:19px;line-height:1;padding:2px 4px}
+      .tt-salir:hover{color:#666}
+      .tt-pista{font-size:12px;color:\${ROJO};font-weight:500;margin-top:11px;
+        display:flex;align-items:center;gap:6px}
+      /* Botón para volver a ver la guía. Se mete en la barra de arriba a la
+         derecha si encuentra dónde; si no, queda flotando en esa misma esquina. */
+      .tt-ayuda{display:inline-flex;align-items:center;gap:5px;border-radius:999px;
+        cursor:pointer;font-family:inherit;font-size:11.5px;font-weight:500;
+        border:1px solid #d8d8e0;background:transparent;color:#8a8a94;
+        padding:3px 10px 3px 4px;line-height:1.5;vertical-align:middle}
+      .tt-ayuda:hover{border-color:\${ROJO};color:\${ROJO}}
+      .tt-ayuda i{display:inline-flex;align-items:center;justify-content:center;
+        width:15px;height:15px;border-radius:50%;background:#e8e8ee;color:#6a6a76;
+        font-style:normal;font-size:10.5px;font-weight:700}
+      .tt-ayuda:hover i{background:\${ROJO};color:#fff}
+      .tt-ayuda.en-linea{margin-left:14px}
+      .tt-ayuda.flotante{position:fixed;top:10px;right:16px;z-index:2147482000;
+        background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+      @media(max-width:640px){
+        .tt-globo{width:calc(100vw - 24px);left:12px!important;right:12px}
+        .tt-flecha{display:none}
+      }\`;
+    document.head.appendChild(s);
+  }
+
+  // ── El motor ──────────────────────────────────────────────────────────────
+  function Tour(nombre, pasos) {
+    let i = 0, activos = [], capa = null, alLimpiar = null;
+
+    function cerrar(completado) {
+      if (alLimpiar) { alLimpiar(); alLimpiar = null; }
+      if (capa) { capa.remove(); capa = null; }
+      window.removeEventListener("resize", pintar);
+      window.removeEventListener("scroll", pintar, true);
+      document.removeEventListener("keydown", teclas);
+      marcarVisto(nombre, completado);
+    }
+
+    function teclas(e) {
+      if (e.key === "Escape") cerrar(false);
+      if (e.key === "ArrowRight" || e.key === "Enter") ir(1);
+      if (e.key === "ArrowLeft") ir(-1);
+    }
+
+    // Algunos pasos viven en otra pestaña del informe. \`alEntrar\` la abre antes
+    // de pintar el globo, para que el elemento exista cuando lo vayamos a buscar.
+    function ir(delta) {
+      const siguiente = i + delta;
+      if (siguiente < 0) return;
+      if (siguiente >= activos.length) return cerrar(true);
+      i = siguiente;
+      const paso = activos[i];
+      // Soltar el "avanzar al hacer clic" del paso anterior ANTES de cambiar de
+      // pestaña: si no, el clic que hace el propio tour lo dispara y salta un paso.
+      if (alLimpiar) { alLimpiar(); alLimpiar = null; }
+      let espera = 0;
+      if (typeof paso.alEntrar === "function") {
+        try { paso.alEntrar(); espera = paso.esperaAlEntrar || 500; } catch (_) {}
+      }
+      setTimeout(() => {
+        const obj = buscar(paso);
+        if (obj) obj.scrollIntoView({ block: "center", behavior: "smooth" });
+        setTimeout(pintar, obj ? 260 : 0);
+      }, espera);
+    }
+
+    function pintar() {
+      if (!capa) return;
+      const paso = activos[i];
+      const obj = buscar(paso);
+      const g = capa.querySelector(".tt-globo");
+      const marco = capa.querySelector(".tt-marco");
+      const velos = [...capa.querySelectorAll(".tt-velo")];
+
+      // contenido
+      capa.querySelector(".tt-paso").textContent = \`Paso \${i + 1} de \${activos.length}\`;
+      capa.querySelector(".tt-titulo").textContent = paso.titulo;
+      capa.querySelector(".tt-texto").textContent = paso.texto_;
+      capa.querySelector(".tt-puntos").innerHTML =
+        activos.map((_, n) => \`<span class="tt-punto \${n === i ? "on" : ""}"></span>\`).join("");
+      capa.querySelector(".tt-atras").style.visibility = i === 0 ? "hidden" : "visible";
+      capa.querySelector(".tt-sig").textContent = i === activos.length - 1 ? "Entendido" : "Siguiente";
+      const pista = capa.querySelector(".tt-pista");
+      pista.style.display = (obj && paso.alHacerClic) ? "flex" : "none";
+      if (obj && paso.alHacerClic) pista.textContent = "→ " + paso.alHacerClic;
+
+      // sin objetivo: globo al centro, velo completo
+      if (!obj) {
+        marco.style.display = "none";
+        g.classList.add("centro");
+        g.style.left = ""; g.style.top = "";
+        capa.querySelector(".tt-flecha").style.display = "none";
+        velos[0].style.cssText = "position:fixed;inset:0;background:rgba(15,15,20,.62);pointer-events:auto";
+        velos.slice(1).forEach(v => v.style.cssText = "display:none");
+        return;
+      }
+
+      const r = obj.getBoundingClientRect();
+      const p = 6;
+      const x = r.left - p, y = r.top - p, w = r.width + p * 2, h = r.height + p * 2;
+
+      marco.style.display = "block";
+      Object.assign(marco.style, { left: x + "px", top: y + "px", width: w + "px", height: h + "px" });
+
+      // cuatro rectángulos alrededor del hueco: oscurecen y bloquean todo
+      // menos el elemento resaltado, que sigue siendo clickeable.
+      const W = innerWidth, H = innerHeight;
+      const rects = [
+        [0, 0, W, Math.max(0, y)],
+        [0, y + h, W, Math.max(0, H - (y + h))],
+        [0, Math.max(0, y), Math.max(0, x), Math.min(h, H)],
+        [x + w, Math.max(0, y), Math.max(0, W - (x + w)), Math.min(h, H)],
+      ];
+      velos.forEach((v, n) => {
+        const [a, b, c, d] = rects[n];
+        v.style.cssText = \`position:fixed;background:rgba(15,15,20,.62);pointer-events:auto;left:\${a}px;top:\${b}px;width:\${c}px;height:\${d}px\`;
+      });
+
+      // globo: debajo si cabe, si no arriba; centrado horizontal sobre el objetivo
+      g.classList.remove("centro");
+      const gw = 330, gh = g.offsetHeight || 190, sep = 14;
+      let gl = Math.min(Math.max(12, r.left + r.width / 2 - gw / 2), W - gw - 12);
+      let gt = y + h + sep, abajo = true;
+      if (gt + gh > H - 12) { gt = y - gh - sep; abajo = false; }
+      if (gt < 12) { gt = 12; }
+      g.style.left = gl + "px"; g.style.top = gt + "px";
+
+      const f = capa.querySelector(".tt-flecha");
+      f.style.display = "block";
+      f.style.left = Math.min(Math.max(16, r.left + r.width / 2 - gl - 6), gw - 28) + "px";
+      f.style.top = abajo ? "-6px" : (gh - 6) + "px";
+
+      // avanzar cuando la persona hace clic en el elemento resaltado
+      if (alLimpiar) { alLimpiar(); alLimpiar = null; }
+      if (paso.alHacerClic) {
+        const mano = () => { obj.removeEventListener("click", mano); alLimpiar = null; setTimeout(() => ir(1), 220); };
+        obj.addEventListener("click", mano);
+        alLimpiar = () => obj.removeEventListener("click", mano);
+      }
+    }
+
+    this.arrancar = function () {
+      estilos();
+      // Se saltan los pasos cuyo elemento no existe para esta persona. Los que
+      // viven en otra pestaña (\`alEntrar\`) no se pueden comprobar todavía, así
+      // que se dejan pasar: si al llegar tampoco están, \`pintar\` los muestra
+      // centrados en vez de apuntar al vacío.
+      activos = pasos.filter(p => !p.sel || p.alEntrar || buscar(p));
+      if (!activos.length) return;
+      i = 0;
+
+      capa = document.createElement("div");
+      capa.className = "tt-capa";
+      capa.innerHTML = \`
+        <div class="tt-velo"></div><div class="tt-velo"></div>
+        <div class="tt-velo"></div><div class="tt-velo"></div>
+        <div class="tt-marco"></div>
+        <div class="tt-globo">
+          <div class="tt-flecha"></div>
+          <button class="tt-salir" title="Cerrar">&times;</button>
+          <div class="tt-paso"></div>
+          <div class="tt-titulo"></div>
+          <div class="tt-texto"></div>
+          <div class="tt-pista"></div>
+          <div class="tt-pie">
+            <div class="tt-puntos"></div>
+            <button class="tt-btn s tt-atras">Atrás</button>
+            <button class="tt-btn p tt-sig">Siguiente</button>
+          </div>
+        </div>\`;
+      document.body.appendChild(capa);
+
+      capa.querySelector(".tt-salir").onclick = () => cerrar(false);
+      capa.querySelector(".tt-atras").onclick = () => ir(-1);
+      capa.querySelector(".tt-sig").onclick = () => ir(1);
+      window.addEventListener("resize", pintar);
+      window.addEventListener("scroll", pintar, true);
+      document.addEventListener("keydown", teclas);
+
+      const obj = buscar(activos[0]);
+      if (obj) obj.scrollIntoView({ block: "center", behavior: "smooth" });
+      setTimeout(pintar, obj ? 280 : 30);
+    };
+  }
+
+  // ── Persistencia ──────────────────────────────────────────────────────────
+  async function rpc(fn, cuerpo) {
+    const r = await fetch(RPC + fn, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cuerpo || {}),
+    });
+    if (!r.ok) throw new Error(fn + " " + r.status);
+    return r.json();
+  }
+
+  function esperarPantallaLista(sel, tope) {
+    if (!sel) return Promise.resolve();
+    const oculto = () => {
+      const e = document.querySelector(sel);
+      return !e || !(e.offsetParent || e.getClientRects().length);
+    };
+    if (oculto()) return Promise.resolve();
+    return new Promise(listo => {
+      const t0 = Date.now();
+      const reloj = setInterval(() => {
+        if (oculto() || Date.now() - t0 > tope) { clearInterval(reloj); listo(); }
+      }, 250);
+    });
+  }
+
+  function marcarVisto(nombre) {
+    if (window.TREI_TOUR_DEMO) return;               // en la demo no se guarda nada
+    rpc("tour_marcar", { p_tour: nombre }).catch(() => {});
+  }
+
+  // ── Arranque ──────────────────────────────────────────────────────────────
+  // Se expone para poder relanzarlo desde el botón de ayuda.
+  window.TreiTour = {
+    lanzar(nombre, pasos) { new Tour(nombre, pasos).arrancar(); },
+
+    // \`anclaje\` es el selector de la zona de arriba a la derecha donde meterlo
+    // (en el informe, la línea de "Datos al … · Usuario: …"). Si no existe,
+    // el botón queda flotando en la misma esquina.
+    botonAyuda(nombre, pasos, opciones) {
+      const o = opciones || {};
+      estilos();
+      const poner = () => {
+        if (document.querySelector(".tt-ayuda")) return;
+        const b = document.createElement("button");
+        b.className = "tt-ayuda";
+        b.innerHTML = '<i>?</i>Guía';
+        b.title = "Ver de nuevo la guía de esta pantalla";
+        b.onclick = () => new Tour(nombre, pasos).arrancar();
+        const ancla = o.anclaje ? document.querySelector(o.anclaje) : null;
+        if (ancla) { b.classList.add("en-linea"); ancla.appendChild(b); }
+        else { b.classList.add("flotante"); document.body.appendChild(b); }
+      };
+      poner();
+      // El informe repinta su cabecera cuando cambian los datos. Si en una de
+      // esas se lleva el botón por delante, lo reponemos.
+      setInterval(poner, 3000);
+    },
+
+    async iniciar(nombre, pasos, opciones) {
+      const o = opciones || {};
+      this.botonAyuda(nombre, pasos, o);
+      if (window.TREI_TOUR_DEMO) return;              // la demo lo lanza a mano
+      try {
+        const est = await rpc("tour_estado", { p_tour: nombre });
+        if (!est || !est.mostrar) return;
+        // El informe tarda en cargar sus datos. Si arrancamos antes, el tour
+        // apunta a elementos que todavía no existen. Esperamos a que la
+        // pantalla de carga desaparezca (con tope, por si nunca lo hace).
+        await esperarPantallaLista(o.esperarQueDesaparezca, o.tope || 20000);
+        setTimeout(() => new Tour(nombre, pasos).arrancar(), o.espera || 600);
+      } catch (_) { /* si la base no responde, no molestamos a nadie */ }
+    },
+  };
+})();
+/* ── Pasos del tour del INFORME COMERCIAL ────────────────────────────────────
+   Enfoque: entender lo general. Gestión Ventas se muestra una sola vez, sin
+   detenerse en cada vista, y el peso del tour se va a Proyectos.
+
+   Selectores reales del informe (verificados en vivo el 04-08-2026):
+     #tabs .tab        → GESTIÓN VENTAS · PROYECTOS · REPORTES
+     .res-sidebar      → el menú "Vista" de Gestión Ventas
+     #proy-side .pitem → la lista de proyectos
+     #pcats .pcat      → las seis vistas de cada proyecto
+   Si un elemento no existe para esa persona, el paso se salta solo.          */
+
+const irAPestana = nombre => () => {
+  const t = [...document.querySelectorAll('#tabs .tab')]
+    .find(x => x.textContent.trim().toUpperCase().startsWith(nombre));
+  if (t) t.click();
+};
+
+const PASOS_INFORME = [
+
+  { titulo: "Bienvenido al Informe Comercial",
+    texto_: "Un minuto para ubicarte. Puedes salir cuando quieras con Esc, y volver a verlo con el botón rojo de abajo a la derecha." },
+
+  { sel: "#tabs", alEntrar: irAPestana("GESTIÓN"),
+    titulo: "Todo se divide en tres",
+    texto_: "Gestión Ventas es la mirada del mes, con todos los proyectos sumados. Proyectos es la ficha de cada uno por separado. Reportes son las descargas." },
+
+  { sel: ".res-sidebar", alEntrar: irAPestana("GESTIÓN"),
+    titulo: "Gestión Ventas: la foto del mes",
+    texto_: "Este menú cambia lo que ves a la derecha. Cada vista responde una pregunta distinta del mes: qué se prometió, qué se escrituró, qué se proyecta cerrar, qué se desistió." },
+
+  { sel: "#tabs .tab", texto: "PROYECTOS", alEntrar: irAPestana("GESTIÓN"),
+    titulo: "Ahora veamos un proyecto",
+    texto_: "Gestión Ventas te dice cómo va el mes en total. Cuando necesitas entrar a un proyecto en particular, es en esta pestaña.",
+    alHacerClic: "Haz clic en PROYECTOS" },
+
+  { sel: "#proy-side", alEntrar: irAPestana("PROYECTOS"), esperaAlEntrar: 900,
+    titulo: "Primero eliges el proyecto",
+    texto_: "Acá aparecen los proyectos a los que tienes acceso. Todo lo que veas a la derecha corresponde solo al que esté marcado." },
+
+  { sel: "#pcats", alEntrar: irAPestana("PROYECTOS"),
+    titulo: "Y luego, cómo quieres mirarlo",
+    texto_: "Seis vistas del mismo proyecto. Ventas Totales es el resumen por estado; Scanner de Precios es la más visual: el edificio piso por piso, con el precio de cada unidad y un color según si está disponible, reservada, promesada o escriturada.",
+    alHacerClic: "Prueba: cambia de vista acá arriba" },
+];
+
+/* ── Pasos del PORTAL de entrada ──────────────────────────────────────────── */
+const PASOS_PORTAL = [
+  { titulo: "Este es el portal de informes",
+    texto_: "Entraste con tu cuenta de Microsoft, la misma del correo. No hay una contraseña aparte que recordar." },
+  { sel: ".cards", titulo: "Elige a dónde entrar",
+    texto_: "Informe Comercial tiene ventas, leads y estado comercial. Etapas de Escrituración sigue a cada cliente hasta la inscripción en el Conservador.",
+    alHacerClic: "Haz clic en la tarjeta que quieras abrir" },
+];
+
+/* ── Arranque ────────────────────────────────────────────────────────────────
+   El mismo archivo sirve para las dos pantallas; decide cuál es por lo que
+   encuentra en el DOM. */
+if (document.getElementById("tabs") && document.getElementById("app")) {
+  TreiTour.iniciar("informe", PASOS_INFORME, {
+    anclaje: ".top-header .meta",
+    esperarQueDesaparezca: "#loading",   // el informe tarda en traer sus datos
+  });
+} else if (document.querySelector(".kpi-card")) {
+  TreiTour.iniciar("portal", PASOS_PORTAL, { anclaje: ".top-header .meta" });
+}
+`;
+
+const ETIQUETA_TOUR = '<script src="/informe_ventas/tour.js" defer></script>';
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -76,6 +483,15 @@ export default {
     // worker les pone las credenciales, firmadas con el correo de la sesión.
     if (url.pathname.startsWith("/informe_ventas/db/")) {
       return proxySupabase(request, env, url, session.email);
+    }
+
+    if (url.pathname === "/informe_ventas/tour.js") {
+      return new Response(TOUR_JS, {
+        headers: {
+          "Content-Type": "application/javascript; charset=utf-8",
+          "Cache-Control": "public, max-age=300",
+        },
+      });
     }
 
     // Portal de informes: se muestra al entrar a la raíz. El botón "Entrar"
@@ -342,9 +758,18 @@ async function proxyToOrigin(request, env, url) {
     cf: { cacheTtl: 0, cacheEverything: false },
   });
 
-  const resp = new Response(originResp.body, originResp);
+  let resp = new Response(originResp.body, originResp);
   resp.headers.set("X-Robots-Tag", "noindex, nofollow");
   resp.headers.set("Cache-Control", "no-store, must-revalidate");
+
+  // Se le cuelga el tour al final del <body>. HTMLRewriter va leyendo el HTML
+  // a medida que pasa, así que no importa que el informe pese 500 KB.
+  const tipo = resp.headers.get("content-type") || "";
+  if (tipo.includes("text/html")) {
+    resp = new HTMLRewriter()
+      .on("body", { element(e) { e.append(ETIQUETA_TOUR, { html: true }); } })
+      .transform(resp);
+  }
   return resp;
 }
 
@@ -498,6 +923,7 @@ body { font-family: 'Ubuntu', Calibri, sans-serif; background: #f7f7f8; color: #
   </div>
 </div>
 
+${ETIQUETA_TOUR}
 </body>
 </html>`;
 }
