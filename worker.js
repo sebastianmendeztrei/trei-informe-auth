@@ -428,7 +428,7 @@ const TOUR_JS = `/* ════════════════════
    detenerse en cada vista, y el peso del tour se va a Proyectos.
 
    Selectores reales del informe (verificados en vivo el 04-08-2026):
-     #tabs .tab        → GESTIÓN VENTAS · PROYECTOS · REPORTES
+     #tabs .tab        → GESTIÓN VENTAS · PROYECTOS
      .res-sidebar      → el menú "Vista" de Gestión Ventas
      #proy-side .pitem → la lista de proyectos
      #pcats .pcat      → las seis vistas de cada proyecto
@@ -446,8 +446,8 @@ const PASOS_INFORME = [
     texto_: "Un minuto para ubicarte. Puedes salir cuando quieras con la X o la tecla Esc, y volver a verlo con el botón «Guía» de arriba a la derecha." },
 
   { sel: "#tabs", alEntrar: irAPestana("GESTIÓN"),
-    titulo: "Todo se divide en tres",
-    texto_: "Gestión Ventas es la mirada del mes, con todos los proyectos sumados. Proyectos es la ficha de cada uno por separado. Reportes son las descargas." },
+    titulo: "Todo se divide en dos",
+    texto_: "Gestión Ventas es la mirada del mes, con todos los proyectos sumados. Proyectos es la ficha de cada uno por separado." },
 
   { sel: ".res-sidebar", alEntrar: irAPestana("GESTIÓN"),
     titulo: "Gestión Ventas: la foto del mes",
