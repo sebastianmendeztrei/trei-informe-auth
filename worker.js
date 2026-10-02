@@ -493,7 +493,7 @@ if (document.getElementById("tabs") && document.getElementById("app")) {
 const ETIQUETA_TOUR = '<script src="/informe_ventas/tour.js" defer></script>';
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     if (url.pathname === "/informe_ventas/auth/callback") {
@@ -538,12 +538,43 @@ export default {
       return await renderHub(session, env);
     }
     if (url.searchParams.has("ir")) {
+      registrarAcceso(env, session, ctx); // bitácora: entrada al Informe Comercial
       url.searchParams.delete("ir");
     }
 
     return proxyToOrigin(request, env, url);
   },
 };
+
+// ════════════════════════════════════════════════════════════════════════════
+// BITÁCORA DE ACCESOS AL INFORME COMERCIAL
+// ════════════════════════════════════════════════════════════════════════════
+
+// Registra una fila en Supabase cada vez que alguien ENTRA al informe comercial
+// (ruta con ?ir=1). No bloquea la navegación: usa ctx.waitUntil y traga errores.
+// Reutiliza SUPABASE_URL y SUPABASE_ANON_KEY que el worker ya tiene configurados.
+// La tabla public.informe_accesos (proyecto owhlpaypipgkihgubvfl) tiene RLS:
+// anon solo puede INSERT (append-only); la lectura va por service_role.
+function registrarAcceso(env, session, ctx) {
+  try {
+    if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return;
+    const p = fetch(`${env.SUPABASE_URL}/rest/v1/informe_accesos`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: env.SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${env.SUPABASE_ANON_KEY}`,
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({
+        email: String(session.email || "").toLowerCase(),
+        nombre: session.name || null,
+        informe: "comercial",
+      }),
+    }).catch(() => {});
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p);
+  } catch (_) {}
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // QUIÉN PUEDE ENTRAR
