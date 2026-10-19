@@ -20,8 +20,10 @@
 //   SUPABASE_ANON_KEY  = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93aGxwYXlwaXBna2loZ3VidmZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxOTIzNjEsImV4cCI6MjA5NDc2ODM2MX0.64wndm7q6l3kaParSh1gXw-8QX_9bhbbYUIJyCM-cz0
 //   BYPASS_MANTENCION  = smendez@trei.cl        (opcional, separado por comas)
 //
-// Nada de esto le quita acceso a nadie de @trei.cl: la regla es "dominio
-// permitido O padrón". El padrón solo suma.
+// Lista de bloqueo (19-10-2026): el padrón ya no solo suma. Una fila inactiva,
+// vencida o con rol `sin_acceso` bloquea incluso a un correo del dominio.
+// Ver puedeEntrar(). Para bloquear: UPDATE/INSERT en informe_usuario con
+// activo = false. Borrar la fila no bloquea.
 // ════════════════════════════════════════════════════════════════════════════
 
 // El estado de mantención ya no vive en maintenance.json: el Panel de Salud lo
@@ -580,18 +582,35 @@ function registrarAcceso(env, session, ctx) {
 // QUIÉN PUEDE ENTRAR
 // ════════════════════════════════════════════════════════════════════════════
 
-// Dominio permitido O padrón del informe. Se consulta el padrón solo cuando el
-// correo no es del dominio, así la gente de casa no paga la latencia extra.
-// Si Supabase no responde, se cae al comportamiento anterior (solo dominio):
-// preferimos dejar fuera a un externo antes que dejar el portal abierto.
+// Dominio permitido O padrón del informe, con LISTA DE BLOQUEO.
+//
+// El padrón (informe_usuario) manda sobre el dominio: si un correo tiene fila y
+// esa fila está inactiva, vencida o con rol `sin_acceso`, NO entra, aunque sea
+// @trei.cl. Para bloquear a alguien del dominio hay que dejar su fila con
+// activo = false (o rol = 'sin_acceso'); borrar la fila NO lo bloquea, porque
+// sin fila rige la regla por defecto (entra el dominio).
+//
+// Se consulta Supabase para todos, con un caché corto en memoria (CACHE_MS) para
+// no pagar una llamada en cada archivo del informe. Un bloqueo nuevo tarda como
+// máximo CACHE_MS en aplicarse.
+//
+// Si Supabase no responde o responde algo inesperado, se cae al comportamiento
+// anterior (solo dominio): el portal nunca queda trabado para la gente de casa,
+// y un externo sigue quedando fuera.
+const CACHE_MS = 30 * 1000;
+const cachePermiso = new Map();
+
 async function puedeEntrar(email, env) {
   const correo = String(email || "").toLowerCase();
   if (!correo) return false;
 
   const dominio = (env.ALLOWED_DOMAIN || "").toLowerCase();
-  if (dominio && correo.endsWith("@" + dominio)) return true;
+  const esDominio = !!dominio && correo.endsWith("@" + dominio);
 
-  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return false;
+  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return esDominio;
+
+  const hit = cachePermiso.get(correo);
+  if (hit && hit.vence > Date.now()) return hit.ok;
 
   try {
     const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/informe_puede_entrar`, {
@@ -603,10 +622,16 @@ async function puedeEntrar(email, env) {
       },
       body: JSON.stringify({ p_email: correo }),
     });
-    if (!res.ok) return false;
-    return (await res.json()) === true;
+    if (!res.ok) return esDominio;
+    const r = await res.json();
+    // Del dominio: solo un `false` explícito bloquea (un null o algo raro no
+    // debe dejar a toda la empresa afuera). Externos: solo entra con `true`.
+    const ok = esDominio ? r !== false : r === true;
+    if (cachePermiso.size > 500) cachePermiso.clear();
+    cachePermiso.set(correo, { ok, vence: Date.now() + CACHE_MS });
+    return ok;
   } catch (_) {
-    return false;
+    return esDominio;
   }
 }
 
